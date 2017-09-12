@@ -6,6 +6,7 @@ define([
     'libraries/mediaelement-fullscreen-hook'
 ], function(Adapt, ComponentView) {
 
+
     var froogaloopAdded = false;
 
     // The following function is used to to prevent a memory leak in Internet Explorer
@@ -30,6 +31,17 @@ define([
     }
 
     var Media = ComponentView.extend({
+      // convenient structure taken from browserChannelHandler
+      _json_baseMessage: {
+          composer: 'jsonMC_v1.0',
+          timestamp: null,
+          verb: null,
+          object: null,
+          objType: null,⋅
+          eventInfo: null,
+          text: '',
+          extraData: null,
+        },
 
         events: {
             "click .media-inline-transcript-button": "onToggleInlineTranscript",
@@ -174,13 +186,49 @@ define([
                     'timeupdate': this.onMediaElementTimeUpdate
                 });
             }
-            
+
             // handle other completion events in the event Listeners 
+            // the first 3 are the original events used by this component
+            // the rest are used for trackingHub and tkhub-xAPI compatiblity
             $(this.mediaElement).on({
-            	'play': this.onMediaElementPlay,
-            	'pause': this.onMediaElementPause,
-            	'ended': this.onMediaElementEnded
+                'play': this.onMediaElementPlay,
+                'pause': this.onMediaElementPause,
+                'ended': this.onMediaElementEnded,
+                'seeked': this.onMediaSeeked,
+                'volumechange': this.onMediaElementVolumeChange,
+                'captionschange': this.onMediaElementCaptionsChange
             });
+            // tell trackingHub to listen to events that we'll send from this component
+            // use a different namespace to avoid conflicts
+            if (Adapt.trackingHub) {
+                Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:play');
+                Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:pause');
+                Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:ended');
+                Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:timeupdate');
+                Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:seeked');
+                Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:volumechange');
+                Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:captionschange');
+
+                // tell the known channel handlers to  add the custom composing functions that we provide in this component
+                _.each(Adapt.trackingHub._channel_handlers, function(chhandler) {
+                     if (chhandler._CHID == 'browserChannelHandler') {
+                         chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'tkhmedia:play', this.onComposeTkhmediaplayJSONMessage);
+                         chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'tkhmedia:pause', this.onComposeTkhmediapauseJSONMessage);
+                         chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'tkhmedia:ended', this.onComposeTkhmediaendedJSONMessage);
+                         chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'tkhmedia:timeupdate', this.onComposeTkhmediatimeupdateJSONMessage);
+                         chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'tkhmedia:seeked', this.onComposeTkhmediaseekedJSONMessage);
+                         chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'tkhmedia:volumechange', this.onComposeTkhmediavolumechangeJSONMessage);
+                         chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'tkhmedia:captionschange', this.onComposeTkhmediacaptionschangeJSONMessage);
+
+                     } else if (chhandler._CHID == 'xapiChannelHandler') {
+                         // chhandler._COMPOSER.addCustomComposingFunction('Adapt', 'navigation:terminate', termView.onComposeTerminateXapiMessage)
+
+                     }
+                }, this);
+
+               // tell the xAPI channel to use our custom composing function
+               termView.xapiChannel._handler._COMPOSER.addCustomComposingFunction('Adapt', 'navigation:terminate', termView.onComposeTerminateXapiMessage)
+            }
         },
 
         onMediaElementPlay: function(event) {
@@ -191,14 +239,16 @@ define([
                 '_isMediaPlaying': true,
                 '_isMediaEnded': false
             });
-            
+
             if (this.completionEvent === 'play') {
                 this.setCompletionStatus();
             }
+            Adapt.trigger("tkhmedia:play", this);
         },
 
         onMediaElementPause: function(event) {
             this.model.set('_isMediaPlaying', false);
+            Adapt.trigger("tkhmedia:pause", this);
         },
 
         onMediaElementEnded: function(event) {
@@ -207,6 +257,7 @@ define([
             if (this.completionEvent === 'ended') {
                 this.setCompletionStatus();
             }
+            Adapt.trigger("tkhmedia:ended", this);
         },
         
         onMediaElementSeeking: function(event) {
@@ -227,7 +278,63 @@ define([
             if (event.target.currentTime > maxViewed) {
                 this.model.set("_maxViewed", event.target.currentTime);
             }
+            Adapt.trigger("tkhmedia:timeupdate", this);
         },
+
+        onMediaElementSeeked: function(event) {
+            Adapt.trigger("tkhmedia:seeked", this);
+        },
+
+        onMediaElementVolumechange: function(event) {
+            Adapt.trigger("tkhmedia:volumechange", this);
+        },
+
+        onMediaElementCaptionschange: function(event) {
+            Adapt.trigger("tkhmedia:captionschange", this);
+        },
+
+        // Custom composing functions to make it compatible with browserChannelHandler
+
+        baseJsonCompose: function(verb, args) {
+            var message = _.clone(this._json_baseMessage);
+            message.actor = Adapt.trackingHub.userInfo;
+            message.verb = verb;
+            message.object = Adapt.trackingHub.getElementKey(args);
+            message.objType = args.get('_type');
+            message.text = message.verb + ' ' + message.objType + ' ' + message.object;
+            return (message);
+        },
+
+        onComposeTkhmediaplayJSONMessage: function(args) {
+            return this.baseJsonCompose('played', args);
+        },
+
+        onComposeTkhmediapauseJSONMessage: function(args) {
+            return this.baseJsonCompose('paused', args);
+        },
+
+        onComposeTkhmediaendedJSONMessage: function(args) {
+            return this.baseJsonCompose('mediaEnded', args);
+        },
+
+        onComposeTkhmediatimeupdateJSONMessage: function(args) {
+            return this.baseJsonCompose('timeUpdated', args);
+        },
+
+        onComposeTkhmediaseekedJSONMessage: function(args) {
+            return this.baseJsonCompose('seeked', args);
+        },
+
+        onComposeTkhmediavolumechangeJSONMessage: function(args) {
+            return this.baseJsonCompose('volumeChanged', args);
+        },
+
+        onComposeTkhmediacaptionschangeJSONMessage: function(args) {
+            return this.baseJsonCompose('captionsChanged', args);
+        },
+
+        // Custom composing functions to make it compatible with xapiChannelHandler
+        // none yet
 
         // Overrides the default play/pause functionality to stop accidental playing on touch devices
         setupPlayPauseToggle: function() {
@@ -343,7 +450,10 @@ define([
                     'pause': this.onMediaElementPause,
                     'ended': this.onMediaElementEnded,
                     'seeking': this.onMediaElementSeeking,
-                    'timeupdate': this.onMediaElementTimeUpdate
+                    'timeupdate': this.onMediaElementTimeUpdate,
+                    'seeked': this.onMediaSeeked,
+                    'volumechange': this.onMediaVolumeChange,
+                    'captionschange': this.onMediaCaptionsChange
                 });
 
                 this.mediaElement.src = "";

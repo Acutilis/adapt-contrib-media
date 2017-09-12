@@ -1,4 +1,6 @@
-# adapt-contrib-media  
+# adapt-contrib-media : tkhub-xAPI compatible branch
+
+A fork of the core adapt-contrib-media made compatible with adapt-trackingHub and adapt-tkhub-xAPI, to provide more detailed xAPI tracking.
 
 <img src="https://github.com/adaptlearning/documentation/blob/master/04_wiki_assets/plug-ins/images/media02.gif" alt="image of media component" align="right">  
 
