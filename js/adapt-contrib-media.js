@@ -37,7 +37,7 @@ define([
           timestamp: null,
           verb: null,
           object: null,
-          objType: null,⋅
+          objType: null,
           eventInfo: null,
           text: '',
           extraData: null,
@@ -57,6 +57,8 @@ define([
             });
 
             _.bindAll(this, 'onMediaElementPlay', 'onMediaElementPause', 'onMediaElementEnded', 'onMediaElementTimeUpdate', 'onMediaElementSeeking');
+            // bind also handlers related to trackingHub compatibility
+            _.bindAll(this, 'onMediaElementSeeked', 'onMediaElementVolumechange', 'onComposeTkhmediaplayJSONMessage', 'onComposeTkhmediapauseJSONMessage', 'onComposeTkhmediaendedJSONMessage', 'onComposeTkhmediatimeupdateJSONMessage', 'onComposeTkhmediaseekedJSONMessage', 'onComposeTkhmediavolumechangeJSONMessage', 'onComposeTkhmediacaptionschangeJSONMessage');
 
             // set initial player state attributes
             this.model.set({
@@ -201,6 +203,7 @@ define([
             // tell trackingHub to listen to events that we'll send from this component
             // use a different namespace to avoid conflicts
             if (Adapt.trackingHub) {
+                console.log('ADDING CUSTOM EVENT LISTENERS TO TRACKINGHUB');
                 Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:play');
                 Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:pause');
                 Adapt.trackingHub.addCustomEventListener('Adapt', 'tkhmedia:ended');
@@ -225,9 +228,6 @@ define([
 
                      }
                 }, this);
-
-               // tell the xAPI channel to use our custom composing function
-               termView.xapiChannel._handler._COMPOSER.addCustomComposingFunction('Adapt', 'navigation:terminate', termView.onComposeTerminateXapiMessage)
             }
         },
 
@@ -299,8 +299,10 @@ define([
             var message = _.clone(this._json_baseMessage);
             message.actor = Adapt.trackingHub.userInfo;
             message.verb = verb;
-            message.object = Adapt.trackingHub.getElementKey(args);
-            message.objType = args.get('_type');
+            // message.object = Adapt.trackingHub.getElementKey(args);
+            message.object = Adapt.trackingHub.getElementKey(this.model);
+            // message.objType = args.get('_type');
+            message.objType = this.model.get('_type');
             message.text = message.verb + ' ' + message.objType + ' ' + message.object;
             return (message);
         },
@@ -455,6 +457,14 @@ define([
                     'volumechange': this.onMediaVolumeChange,
                     'captionschange': this.onMediaCaptionsChange
                 });
+                // tell trackingHub to stop listening to events from this object
+                Adapt.trackingHub.removeCustomEventListener('Adapt', 'tkhmedia:play');
+                Adapt.trackingHub.removeCustomEventListener('Adapt', 'tkhmedia:pause');
+                Adapt.trackingHub.removeCustomEventListener('Adapt', 'tkhmedia:ended');
+                Adapt.trackingHub.removeCustomEventListener('Adapt', 'tkhmedia:timeupdate');
+                Adapt.trackingHub.removeCustomEventListener('Adapt', 'tkhmedia:seeked');
+                Adapt.trackingHub.removeCustomEventListener('Adapt', 'tkhmedia:volumechange');
+                Adapt.trackingHub.removeCustomEventListener('Adapt', 'tkhmedia:captionschange');
 
                 this.mediaElement.src = "";
                 $(this.mediaElement.pluginElement).remove();
